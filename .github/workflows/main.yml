@@ -22,11 +22,6 @@ jobs:
       - name: Set up MSBuild
         uses: microsoft/setup-msbuild@v1
 
-      # Restore NuGet packages (if needed)
-      - name: Restore NuGet packages
-        run: |
-          nuget restore
-
       # Build the project
       - name: Build DLL
         run: |
@@ -34,7 +29,7 @@ jobs:
 
       # Upload the built DLL as an artifact
       - name: Upload DLL artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: d3d11.dll
           path: x64\Release\d3d11.dll
