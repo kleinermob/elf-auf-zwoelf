@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main  # Trigger on pushes to the main branch
+    paths:
+      - '**'  # Trigger on any changes in the repository
   pull_request:
     branches:
       - main  # Trigger on pull requests to the main branch
@@ -16,7 +18,7 @@ jobs:
     steps:
       # Check out the repository
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       # Set up MSBuild
       - name: Set up MSBuild
