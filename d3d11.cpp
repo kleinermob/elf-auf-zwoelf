@@ -1,141 +1,208 @@
 #include <d3d11.h>
 #include <d3d11on12.h>
 #include <d3d12.h>
-
+#include <dxgi1_4.h> // For swap chain creation
 #include <iostream>
+#include <vector>
 
+// Function to dynamically load D3D11On12CreateDevice
 static PFN_D3D11ON12_CREATE_DEVICE getPfnD3D11On12CreateDevice() {
-	static PFN_D3D11ON12_CREATE_DEVICE fptr = nullptr;
+    static PFN_D3D11ON12_CREATE_DEVICE fptr = nullptr;
 
-	if (fptr)
-		return fptr;
+    if (fptr)
+        return fptr;
 
-	HMODULE d3d11module = LoadLibraryA("C:\\Windows\\System32\\d3d11.dll");
+    HMODULE d3d11module = LoadLibraryA("d3d11.dll"); // Use default system DLL
 
-	if (!d3d11module)
-		return nullptr;
+    if (!d3d11module) {
+        std::cerr << "Failed to load d3d11.dll" << std::endl;
+        return nullptr;
+    }
 
-	fptr = reinterpret_cast<PFN_D3D11ON12_CREATE_DEVICE>(
-		GetProcAddress(d3d11module, "D3D11On12CreateDevice"));
-	return fptr;
+    fptr = reinterpret_cast<PFN_D3D11ON12_CREATE_DEVICE>(
+        GetProcAddress(d3d11module, "D3D11On12CreateDevice"));
+
+    if (!fptr) {
+        std::cerr << "Failed to get D3D11On12CreateDevice function pointer" << std::endl;
+    }
+
+    return fptr;
 }
 
-
-
+// Custom D3D11CreateDevice implementation
 HRESULT __stdcall D3D11CreateDevice(
-	IDXGIAdapter            *pAdapter,
-	D3D_DRIVER_TYPE         DriverType,
-	HMODULE                 Software,
-	UINT                    Flags,
-	const D3D_FEATURE_LEVEL *pFeatureLevels,
-	UINT                    FeatureLevels,
-	UINT                    SDKVersion,
-	ID3D11Device            **ppDevice,
-	D3D_FEATURE_LEVEL       *pFeatureLevel,
-	ID3D11DeviceContext     **ppImmediateContext) {
-	ID3D12Device* d3d12device;
+    IDXGIAdapter* pAdapter,
+    D3D_DRIVER_TYPE DriverType,
+    HMODULE Software,
+    UINT Flags,
+    const D3D_FEATURE_LEVEL* pFeatureLevels,
+    UINT FeatureLevels,
+    UINT SDKVersion,
+    ID3D11Device** ppDevice,
+    D3D_FEATURE_LEVEL* pFeatureLevel,
+    ID3D11DeviceContext** ppImmediateContext) {
 
-	HRESULT hr = D3D12CreateDevice(pAdapter,
-		D3D_FEATURE_LEVEL_11_0,
-		IID_PPV_ARGS(&d3d12device));
-	
-	if (FAILED(hr))
-		return hr;
+    if (!ppDevice || !ppImmediateContext) {
+        return E_INVALIDARG;
+    }
 
-	D3D12_COMMAND_QUEUE_DESC desc;
-	desc.Type		= D3D12_COMMAND_LIST_TYPE_DIRECT;
-	desc.Priority	= D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-	desc.Flags		= D3D12_COMMAND_QUEUE_FLAG_NONE;
-	desc.NodeMask	= 0;
+    // Create a D3D12 device
+    ID3D12Device* d3d12device = nullptr;
+    std::vector<D3D_FEATURE_LEVEL> featureLevels = {
+        D3D_FEATURE_LEVEL_11_0,
+        D3D_FEATURE_LEVEL_11_1,
+        D3D_FEATURE_LEVEL_12_0,
+        D3D_FEATURE_LEVEL_12_1
+    };
 
-	ID3D12CommandQueue* d3d12queue;
+    HRESULT hr = D3D12CreateDevice(pAdapter, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&d3d12device));
 
-	hr = d3d12device->CreateCommandQueue(&desc,
-		IID_PPV_ARGS(&d3d12queue));
+    if (FAILED(hr)) {
+        std::cerr << "Failed to create D3D12 device" << std::endl;
+        return hr;
+    }
 
-	if (FAILED(hr))
-		return hr;
+    // Create a D3D12 command queue
+    D3D12_COMMAND_QUEUE_DESC queueDesc = {};
+    queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    queueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+    queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+    queueDesc.NodeMask = 0;
 
-	auto pfnD3D11on12CreateDevice = getPfnD3D11On12CreateDevice();
+    ID3D12CommandQueue* d3d12queue = nullptr;
+    hr = d3d12device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&d3d12queue));
 
-	if (!pfnD3D11on12CreateDevice)
-		return E_FAIL;
+    if (FAILED(hr)) {
+        std::cerr << "Failed to create D3D12 command queue" << std::endl;
+        d3d12device->Release();
+        return hr;
+    }
 
-	hr = (*pfnD3D11on12CreateDevice)(d3d12device,
-		Flags, pFeatureLevels, FeatureLevels,
-		reinterpret_cast<IUnknown**>(&d3d12queue),
-		1, 0, ppDevice, ppImmediateContext, pFeatureLevel);
-	
-	d3d12device->Release();
-	return hr;
+    // Get the D3D11On12CreateDevice function pointer
+    auto pfnD3D11on12CreateDevice = getPfnD3D11On12CreateDevice();
+
+    if (!pfnD3D11on12CreateDevice) {
+        std::cerr << "Failed to get D3D11On12CreateDevice function pointer" << std::endl;
+        d3d12queue->Release();
+        d3d12device->Release();
+        return E_FAIL;
+    }
+
+    // Create the D3D11 device on top of the D3D12 device
+    hr = (*pfnD3D11on12CreateDevice)(
+        d3d12device,
+        Flags,
+        pFeatureLevels,
+        FeatureLevels,
+        reinterpret_cast<IUnknown**>(&d3d12queue),
+        1,
+        0,
+        ppDevice,
+        ppImmediateContext,
+        pFeatureLevel
+    );
+
+    if (FAILED(hr)) {
+        std::cerr << "Failed to create D3D11 device on D3D12" << std::endl;
+        d3d12queue->Release();
+        d3d12device->Release();
+        return hr;
+    }
+
+    // Release D3D12 resources (they are now managed by D3D11On12)
+    d3d12queue->Release();
+    d3d12device->Release();
+
+    return S_OK;
 }
 
-
+// Custom D3D11CreateDeviceAndSwapChain implementation
 HRESULT __stdcall D3D11CreateDeviceAndSwapChain(
-	IDXGIAdapter*         pAdapter,
-	D3D_DRIVER_TYPE       DriverType,
-	HMODULE               Software,
-	UINT                  Flags,
-	const D3D_FEATURE_LEVEL*    pFeatureLevels,
-	UINT                  FeatureLevels,
-	UINT                  SDKVersion,
-	const DXGI_SWAP_CHAIN_DESC* pSwapChainDesc,
-	IDXGISwapChain**      ppSwapChain,
-	ID3D11Device**        ppDevice,
-	D3D_FEATURE_LEVEL*    pFeatureLevel,
-	ID3D11DeviceContext** ppImmediateContext) {
-	if (ppSwapChain && !pSwapChainDesc)
-		return E_INVALIDARG;
+    IDXGIAdapter* pAdapter,
+    D3D_DRIVER_TYPE DriverType,
+    HMODULE Software,
+    UINT Flags,
+    const D3D_FEATURE_LEVEL* pFeatureLevels,
+    UINT FeatureLevels,
+    UINT SDKVersion,
+    const DXGI_SWAP_CHAIN_DESC* pSwapChainDesc,
+    IDXGISwapChain** ppSwapChain,
+    ID3D11Device** ppDevice,
+    D3D_FEATURE_LEVEL* pFeatureLevel,
+    ID3D11DeviceContext** ppImmediateContext) {
 
-	ID3D11Device*        d3d11Device;
-	ID3D11DeviceContext* d3d11Context;
+    if (ppSwapChain && !pSwapChainDesc) {
+        return E_INVALIDARG;
+    }
 
-	HRESULT status = D3D11CreateDevice(pAdapter, DriverType,
-		Software, Flags, pFeatureLevels, FeatureLevels,
-		SDKVersion, &d3d11Device, pFeatureLevel, &d3d11Context);
+    // Create the D3D11 device
+    ID3D11Device* d3d11Device = nullptr;
+    ID3D11DeviceContext* d3d11Context = nullptr;
 
-	if (FAILED(status))
-		return status;
+    HRESULT hr = D3D11CreateDevice(
+        pAdapter, DriverType, Software, Flags,
+        pFeatureLevels, FeatureLevels, SDKVersion,
+        &d3d11Device, pFeatureLevel, &d3d11Context
+    );
 
-	if (ppSwapChain) {
-		IDXGIDevice*  dxgiDevice = nullptr;
-		IDXGIAdapter* dxgiAdapter = nullptr;
-		IDXGIFactory* dxgiFactory = nullptr;
+    if (FAILED(hr)) {
+        std::cerr << "Failed to create D3D11 device" << std::endl;
+        return hr;
+    }
 
-		HRESULT hr = d3d11Device->QueryInterface(IID_PPV_ARGS(&dxgiDevice));
-		
-		if (FAILED(hr))
-			return E_INVALIDARG;
+    // Create the swap chain if requested
+    if (ppSwapChain) {
+        IDXGIDevice* dxgiDevice = nullptr;
+        IDXGIAdapter* dxgiAdapter = nullptr;
+        IDXGIFactory* dxgiFactory = nullptr;
 
-		hr = dxgiDevice->GetParent(IID_PPV_ARGS(&dxgiAdapter));
-		dxgiDevice->Release();
+        hr = d3d11Device->QueryInterface(IID_PPV_ARGS(&dxgiDevice));
+        if (FAILED(hr)) {
+            std::cerr << "Failed to get DXGI device" << std::endl;
+            d3d11Device->Release();
+            return hr;
+        }
 
-		if (FAILED(hr))
-			return E_INVALIDARG;
+        hr = dxgiDevice->GetParent(IID_PPV_ARGS(&dxgiAdapter));
+        dxgiDevice->Release();
 
-		hr = dxgiAdapter->GetParent(IID_PPV_ARGS(&dxgiFactory));
-		dxgiAdapter->Release();
+        if (FAILED(hr)) {
+            std::cerr << "Failed to get DXGI adapter" << std::endl;
+            d3d11Device->Release();
+            return hr;
+        }
 
-		if (FAILED(hr))
-			return E_INVALIDARG;
+        hr = dxgiAdapter->GetParent(IID_PPV_ARGS(&dxgiFactory));
+        dxgiAdapter->Release();
 
-		DXGI_SWAP_CHAIN_DESC desc = *pSwapChainDesc;
-		hr = dxgiFactory->CreateSwapChain(d3d11Device, &desc, ppSwapChain);
-		dxgiFactory->Release();
+        if (FAILED(hr)) {
+            std::cerr << "Failed to get DXGI factory" << std::endl;
+            d3d11Device->Release();
+            return hr;
+        }
 
-		if (FAILED(hr))
-			return hr;
-	}
+        hr = dxgiFactory->CreateSwapChain(d3d11Device, pSwapChainDesc, ppSwapChain);
+        dxgiFactory->Release();
 
-	if (ppDevice != nullptr)
-		*ppDevice = d3d11Device;
-	else
-		d3d11Device->Release();
+        if (FAILED(hr)) {
+            std::cerr << "Failed to create swap chain" << std::endl;
+            d3d11Device->Release();
+            return hr;
+        }
+    }
 
-	if (ppImmediateContext != nullptr)
-		*ppImmediateContext = d3d11Context;
-	else
-		d3d11Context->Release();
+    // Return the device and context
+    if (ppDevice) {
+        *ppDevice = d3d11Device;
+    } else {
+        d3d11Device->Release();
+    }
 
-	return S_OK;
+    if (ppImmediateContext) {
+        *ppImmediateContext = d3d11Context;
+    } else {
+        d3d11Context->Release();
+    }
+
+    return S_OK;
 }
