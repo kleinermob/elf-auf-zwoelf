@@ -1,0 +1,39 @@
+name: Build D3D11 DLL on Windows
+
+on:
+  push:
+    branches:
+      - main  # Trigger on pushes to the main branch
+  pull_request:
+    branches:
+      - main  # Trigger on pull requests to the main branch
+
+jobs:
+  build:
+    runs-on: windows-latest  # Use the latest Windows environment
+
+    steps:
+      # Check out the repository
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Set up MSBuild
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v1
+
+      # Restore NuGet packages (if needed)
+      - name: Restore NuGet packages
+        run: |
+          nuget restore
+
+      # Build the project
+      - name: Build DLL
+        run: |
+          msbuild d3d11.vcxproj /p:Configuration=Release /p:Platform=x64
+
+      # Upload the built DLL as an artifact
+      - name: Upload DLL artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: d3d11.dll
+          path: x64\Release\d3d11.dll
