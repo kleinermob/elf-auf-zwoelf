@@ -1,10 +1,13 @@
 #include <d3d11.h>
 #include <d3d11on12.h>
 #include <d3d12.h>
-
+#include <dxgi1_4.h> // For IDXGIFactory4 and IDXGISwapChain3
+#include <wrl/client.h> // For ComPtr
 #include <iostream>
 
-static PFN_D3D11ON12_CREATE_DEVICE getPfnD3D11On12CreateDevice() {
+using Microsoft::WRL::ComPtr;
+
+static PFN_D3D11ON12_CREATE_DEVICE GetPfnD3D11On12CreateDevice() {
     static PFN_D3D11ON12_CREATE_DEVICE fptr = nullptr;
 
     if (fptr)
@@ -20,137 +23,156 @@ static PFN_D3D11ON12_CREATE_DEVICE getPfnD3D11On12CreateDevice() {
     return fptr;
 }
 
-HRESULT __stdcall D3D11CreateDevice(
-    IDXGIAdapter            *pAdapter,
-    D3D_DRIVER_TYPE         DriverType,
-    HMODULE                 Software,
-    UINT                    Flags,
-    const D3D_FEATURE_LEVEL *pFeatureLevels,
-    UINT                    FeatureLevels,
-    UINT                    SDKVersion,
-    ID3D11Device            **ppDevice,
-    D3D_FEATURE_LEVEL       *pFeatureLevel,
-    ID3D11DeviceContext     **ppImmediateContext) {
-    ID3D12Device* d3d12device = nullptr;
+HRESULT CreateD3D12Device(IDXGIAdapter* pAdapter, ComPtr<ID3D12Device>& d3d12Device) {
+    // Use the latest feature level supported by the hardware
+    constexpr D3D_FEATURE_LEVEL featureLevels[] = {
+        D3D_FEATURE_LEVEL_12_1,
+        D3D_FEATURE_LEVEL_12_0,
+        D3D_FEATURE_LEVEL_11_1,
+        D3D_FEATURE_LEVEL_11_0
+    };
 
-    HRESULT hr = D3D12CreateDevice(pAdapter,
-        D3D_FEATURE_LEVEL_11_0,
-        IID_PPV_ARGS(&d3d12device));
-    
-    if (FAILED(hr))
-        return hr;
+    return D3D12CreateDevice(pAdapter, featureLevels[0], IID_PPV_ARGS(&d3d12Device));
+}
 
+HRESULT CreateD3D12CommandQueue(ID3D12Device* d3d12Device, ComPtr<ID3D12CommandQueue>& d3d12Queue) {
     D3D12_COMMAND_QUEUE_DESC desc = {};
-    desc.Type        = D3D12_COMMAND_LIST_TYPE_DIRECT;
-    desc.Priority    = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-    desc.Flags       = D3D12_COMMAND_QUEUE_FLAG_NONE;
-    desc.NodeMask    = 0;
+    desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+    desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+    desc.NodeMask = 0;
 
-    ID3D12CommandQueue* d3d12queue = nullptr;
+    return d3d12Device->CreateCommandQueue(&desc, IID_PPV_ARGS(&d3d12Queue));
+}
 
-    hr = d3d12device->CreateCommandQueue(&desc,
-        IID_PPV_ARGS(&d3d12queue));
+HRESULT __stdcall D3D11CreateDevice(
+    IDXGIAdapter* pAdapter,
+    D3D_DRIVER_TYPE DriverType,
+    HMODULE Software,
+    UINT Flags,
+    const D3D_FEATURE_LEVEL* pFeatureLevels,
+    UINT FeatureLevels,
+    UINT SDKVersion,
+    ID3D11Device** ppDevice,
+    D3D_FEATURE_LEVEL* pFeatureLevel,
+    ID3D11DeviceContext** ppImmediateContext) {
 
+    ComPtr<ID3D12Device> d3d12Device;
+    HRESULT hr = CreateD3D12Device(pAdapter, d3d12Device);
     if (FAILED(hr)) {
-        d3d12device->Release();
+        std::cerr << "Failed to create D3D12 device. HRESULT: " << hr << std::endl;
         return hr;
     }
 
-    auto pfnD3D11on12CreateDevice = getPfnD3D11On12CreateDevice();
+    ComPtr<ID3D12CommandQueue> d3d12Queue;
+    hr = CreateD3D12CommandQueue(d3d12Device.Get(), d3d12Queue);
+    if (FAILED(hr)) {
+        std::cerr << "Failed to create D3D12 command queue. HRESULT: " << hr << std::endl;
+        return hr;
+    }
 
+    auto pfnD3D11on12CreateDevice = GetPfnD3D11On12CreateDevice();
     if (!pfnD3D11on12CreateDevice) {
-        d3d12queue->Release();
-        d3d12device->Release();
+        std::cerr << "Failed to get D3D11On12CreateDevice function pointer." << std::endl;
         return E_FAIL;
     }
 
-    hr = (*pfnD3D11on12CreateDevice)(d3d12device,
-        Flags, pFeatureLevels, FeatureLevels,
-        reinterpret_cast<IUnknown**>(&d3d12queue),
-        1, 0, ppDevice, ppImmediateContext, pFeatureLevel);
-    
-    d3d12queue->Release();
-    d3d12device->Release();
+    // Use modern flags for better performance
+    Flags |= D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+
+    hr = (*pfnD3D11on12CreateDevice)(d3d12Device.Get(), Flags, pFeatureLevels, FeatureLevels,
+        reinterpret_cast<IUnknown**>(d3d12Queue.GetAddressOf()), 1, 0, ppDevice, ppImmediateContext, pFeatureLevel);
+
+    if (FAILED(hr)) {
+        std::cerr << "Failed to create D3D11 device on D3D12. HRESULT: " << hr << std::endl;
+    }
+
     return hr;
 }
 
 HRESULT __stdcall D3D11CreateDeviceAndSwapChain(
-    IDXGIAdapter*         pAdapter,
-    D3D_DRIVER_TYPE       DriverType,
-    HMODULE               Software,
-    UINT                  Flags,
-    const D3D_FEATURE_LEVEL*    pFeatureLevels,
-    UINT                  FeatureLevels,
-    UINT                  SDKVersion,
+    IDXGIAdapter* pAdapter,
+    D3D_DRIVER_TYPE DriverType,
+    HMODULE Software,
+    UINT Flags,
+    const D3D_FEATURE_LEVEL* pFeatureLevels,
+    UINT FeatureLevels,
+    UINT SDKVersion,
     const DXGI_SWAP_CHAIN_DESC* pSwapChainDesc,
-    IDXGISwapChain**      ppSwapChain,
-    ID3D11Device**        ppDevice,
-    D3D_FEATURE_LEVEL*    pFeatureLevel,
+    IDXGISwapChain** ppSwapChain,
+    ID3D11Device** ppDevice,
+    D3D_FEATURE_LEVEL* pFeatureLevel,
     ID3D11DeviceContext** ppImmediateContext) {
+
     if (ppSwapChain && !pSwapChainDesc)
         return E_INVALIDARG;
 
-    ID3D11Device*        d3d11Device = nullptr;
-    ID3D11DeviceContext* d3d11Context = nullptr;
+    ComPtr<ID3D11Device> d3d11Device;
+    ComPtr<ID3D11DeviceContext> d3d11Context;
 
-    HRESULT status = D3D11CreateDevice(pAdapter, DriverType,
-        Software, Flags, pFeatureLevels, FeatureLevels,
-        SDKVersion, &d3d11Device, pFeatureLevel, &d3d11Context);
+    HRESULT hr = D3D11CreateDevice(pAdapter, DriverType, Software, Flags, pFeatureLevels,
+        FeatureLevels, SDKVersion, &d3d11Device, pFeatureLevel, &d3d11Context);
 
-    if (FAILED(status))
-        return status;
+    if (FAILED(hr)) {
+        std::cerr << "Failed to create D3D11 device. HRESULT: " << hr << std::endl;
+        return hr;
+    }
 
     if (ppSwapChain) {
-        IDXGIDevice*  dxgiDevice = nullptr;
-        IDXGIAdapter* dxgiAdapter = nullptr;
-        IDXGIFactory* dxgiFactory = nullptr;
-
-        HRESULT hr = d3d11Device->QueryInterface(IID_PPV_ARGS(&dxgiDevice));
-        
+        ComPtr<IDXGIDevice> dxgiDevice;
+        hr = d3d11Device.As(&dxgiDevice);
         if (FAILED(hr)) {
-            if (ppDevice == nullptr) d3d11Device->Release();
-            if (ppImmediateContext == nullptr) d3d11Context->Release();
+            std::cerr << "Failed to query DXGI device. HRESULT: " << hr << std::endl;
             return hr;
         }
 
+        ComPtr<IDXGIAdapter> dxgiAdapter;
         hr = dxgiDevice->GetParent(IID_PPV_ARGS(&dxgiAdapter));
-        dxgiDevice->Release();
-
         if (FAILED(hr)) {
-            if (ppDevice == nullptr) d3d11Device->Release();
-            if (ppImmediateContext == nullptr) d3d11Context->Release();
+            std::cerr << "Failed to get DXGI adapter. HRESULT: " << hr << std::endl;
             return hr;
         }
 
+        ComPtr<IDXGIFactory4> dxgiFactory;
         hr = dxgiAdapter->GetParent(IID_PPV_ARGS(&dxgiFactory));
-        dxgiAdapter->Release();
-
         if (FAILED(hr)) {
-            if (ppDevice == nullptr) d3d11Device->Release();
-            if (ppImmediateContext == nullptr) d3d11Context->Release();
+            std::cerr << "Failed to get DXGI factory. HRESULT: " << hr << std::endl;
             return hr;
         }
 
-        DXGI_SWAP_CHAIN_DESC desc = *pSwapChainDesc;
-        hr = dxgiFactory->CreateSwapChain(d3d11Device, &desc, ppSwapChain);
-        dxgiFactory->Release();
+        // Use modern swap chain creation
+        DXGI_SWAP_CHAIN_DESC1 desc = {};
+        desc.Width = pSwapChainDesc->BufferDesc.Width;
+        desc.Height = pSwapChainDesc->BufferDesc.Height;
+        desc.Format = pSwapChainDesc->BufferDesc.Format;
+        desc.Stereo = FALSE;
+        desc.SampleDesc = pSwapChainDesc->SampleDesc;
+        desc.BufferUsage = pSwapChainDesc->BufferUsage;
+        desc.BufferCount = pSwapChainDesc->BufferCount;
+        desc.Scaling = DXGI_SCALING_STRETCH;
+        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD; // Modern swap effect
+        desc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
+        desc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING; // Enable tearing support
 
+        ComPtr<IDXGISwapChain1> swapChain1;
+        hr = dxgiFactory->CreateSwapChainForHwnd(
+            d3d11Device.Get(), pSwapChainDesc->OutputWindow, &desc, nullptr, nullptr, &swapChain1);
         if (FAILED(hr)) {
-            if (ppDevice == nullptr) d3d11Device->Release();
-            if (ppImmediateContext == nullptr) d3d11Context->Release();
+            std::cerr << "Failed to create swap chain. HRESULT: " << hr << std::endl;
+            return hr;
+        }
+
+        hr = swapChain1.As(reinterpret_cast<IDXGISwapChain3**>(ppSwapChain));
+        if (FAILED(hr)) {
+            std::cerr << "Failed to query modern swap chain. HRESULT: " << hr << std::endl;
             return hr;
         }
     }
 
-    if (ppDevice != nullptr)
-        *ppDevice = d3d11Device;
-    else
-        d3d11Device->Release();
-
-    if (ppImmediateContext != nullptr)
-        *ppImmediateContext = d3d11Context;
-    else
-        d3d11Context->Release();
+    if (ppDevice)
+        *ppDevice = d3d11Device.Detach();
+    if (ppImmediateContext)
+        *ppImmediateContext = d3d11Context.Detach();
 
     return S_OK;
 }
