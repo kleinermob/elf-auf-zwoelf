@@ -1,156 +1,167 @@
-#include <d3d11.h>
-#include <d3d11on12.h>
-#include <d3d12.h>
-
-#include <iostream>
-
-static PFN_D3D11ON12_CREATE_DEVICE getPfnD3D11On12CreateDevice() {
-    static PFN_D3D11ON12_CREATE_DEVICE fptr = nullptr;
-
-    if (fptr)
-        return fptr;
-
-    HMODULE d3d11module = LoadLibraryA("C:\\Windows\\System32\\d3d11.dll");
-
-    if (!d3d11module)
-        return nullptr;
-
-    fptr = reinterpret_cast<PFN_D3D11ON12_CREATE_DEVICE>(
-        GetProcAddress(d3d11module, "D3D11On12CreateDevice"));
-    return fptr;
-}
-
-HRESULT __stdcall D3D11CreateDevice(
-    IDXGIAdapter            *pAdapter,
-    D3D_DRIVER_TYPE         DriverType,
-    HMODULE                 Software,
-    UINT                    Flags,
-    const D3D_FEATURE_LEVEL *pFeatureLevels,
-    UINT                    FeatureLevels,
-    UINT                    SDKVersion,
-    ID3D11Device            **ppDevice,
-    D3D_FEATURE_LEVEL       *pFeatureLevel,
-    ID3D11DeviceContext     **ppImmediateContext) {
-    ID3D12Device* d3d12device = nullptr;
-
-    HRESULT hr = D3D12CreateDevice(pAdapter,
-        D3D_FEATURE_LEVEL_11_0,
-        IID_PPV_ARGS(&d3d12device));
-    
-    if (FAILED(hr))
-        return hr;
-
-    D3D12_COMMAND_QUEUE_DESC desc = {};
-    desc.Type        = D3D12_COMMAND_LIST_TYPE_DIRECT;
-    desc.Priority    = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-    desc.Flags       = D3D12_COMMAND_QUEUE_FLAG_NONE;
-    desc.NodeMask    = 0;
-
-    ID3D12CommandQueue* d3d12queue = nullptr;
-
-    hr = d3d12device->CreateCommandQueue(&desc,
-        IID_PPV_ARGS(&d3d12queue));
-
-    if (FAILED(hr)) {
-        d3d12device->Release();
-        return hr;
-    }
-
-    auto pfnD3D11on12CreateDevice = getPfnD3D11On12CreateDevice();
-
-    if (!pfnD3D11on12CreateDevice) {
-        d3d12queue->Release();
-        d3d12device->Release();
-        return E_FAIL;
-    }
-
-    hr = (*pfnD3D11on12CreateDevice)(d3d12device,
-        Flags, pFeatureLevels, FeatureLevels,
-        reinterpret_cast<IUnknown**>(&d3d12queue),
-        1, 0, ppDevice, ppImmediateContext, pFeatureLevel);
-    
-    d3d12queue->Release();
-    d3d12device->Release();
-    return hr;
-}
-
-HRESULT __stdcall D3D11CreateDeviceAndSwapChain(
-    IDXGIAdapter*         pAdapter,
-    D3D_DRIVER_TYPE       DriverType,
-    HMODULE               Software,
-    UINT                  Flags,
-    const D3D_FEATURE_LEVEL*    pFeatureLevels,
-    UINT                  FeatureLevels,
-    UINT                  SDKVersion,
-    const DXGI_SWAP_CHAIN_DESC* pSwapChainDesc,
-    IDXGISwapChain**      ppSwapChain,
-    ID3D11Device**        ppDevice,
-    D3D_FEATURE_LEVEL*    pFeatureLevel,
-    ID3D11DeviceContext** ppImmediateContext) {
-    if (ppSwapChain && !pSwapChainDesc)
-        return E_INVALIDARG;
-
-    ID3D11Device*        d3d11Device = nullptr;
-    ID3D11DeviceContext* d3d11Context = nullptr;
-
-    HRESULT status = D3D11CreateDevice(pAdapter, DriverType,
-        Software, Flags, pFeatureLevels, FeatureLevels,
-        SDKVersion, &d3d11Device, pFeatureLevel, &d3d11Context);
-
-    if (FAILED(status))
-        return status;
-
-    if (ppSwapChain) {
-        IDXGIDevice*  dxgiDevice = nullptr;
-        IDXGIAdapter* dxgiAdapter = nullptr;
-        IDXGIFactory* dxgiFactory = nullptr;
-
-        HRESULT hr = d3d11Device->QueryInterface(IID_PPV_ARGS(&dxgiDevice));
-        
-        if (FAILED(hr)) {
-            if (ppDevice == nullptr) d3d11Device->Release();
-            if (ppImmediateContext == nullptr) d3d11Context->Release();
-            return hr;
-        }
-
-        hr = dxgiDevice->GetParent(IID_PPV_ARGS(&dxgiAdapter));
-        dxgiDevice->Release();
-
-        if (FAILED(hr)) {
-            if (ppDevice == nullptr) d3d11Device->Release();
-            if (ppImmediateContext == nullptr) d3d11Context->Release();
-            return hr;
-        }
-
-        hr = dxgiAdapter->GetParent(IID_PPV_ARGS(&dxgiFactory));
-        dxgiAdapter->Release();
-
-        if (FAILED(hr)) {
-            if (ppDevice == nullptr) d3d11Device->Release();
-            if (ppImmediateContext == nullptr) d3d11Context->Release();
-            return hr;
-        }
-
-        DXGI_SWAP_CHAIN_DESC desc = *pSwapChainDesc;
-        hr = dxgiFactory->CreateSwapChain(d3d11Device, &desc, ppSwapChain);
-        dxgiFactory->Release();
-
-        if (FAILED(hr)) {
-            if (ppDevice == nullptr) d3d11Device->Release();
-            if (ppImmediateContext == nullptr) d3d11Context->Release();
-            return hr;
-        }
-    }
-
-    if (ppDevice != nullptr)
-        *ppDevice = d3d11Device;
-    else
-        d3d11Device->Release();
-
-    if (ppImmediateContext != nullptr)
-        *ppImmediateContext = d3d11Context;
-    else
-        d3d11Context->Release();
-
-    return S_OK;
-}
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>16.0</VCProjectVersion>
+    <ProjectGuid>{94D26100-50F9-472B-82DF-6ED9BB6DCD62}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>Dll1</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <ProjectName>d3d11</ProjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <LinkIncremental>true</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <LinkIncremental>true</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;_DEBUG;DLL1_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>d3d12.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ModuleDefinitionFile>d3d11.def</ModuleDefinitionFile>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>_DEBUG;DLL1_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <ModuleDefinitionFile>d3d11.def</ModuleDefinitionFile>
+      <AdditionalDependencies>d3d12.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;NDEBUG;DLL1_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <ModuleDefinitionFile>d3d11.def</ModuleDefinitionFile>
+      <AdditionalDependencies>d3d12.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>NDEBUG;DLL1_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <ModuleDefinitionFile>d3d11.def</ModuleDefinitionFile>
+      <AdditionalDependencies>d3d12.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="d3d11.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="d3d11.def" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
