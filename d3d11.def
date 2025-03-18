@@ -1,4 +1,14 @@
+; Module definition file for custom D3D11.DLL
+; Exports the necessary functions to override the system d3d11.dll
+
 LIBRARY D3D11.DLL
-EXPORTS  
-    D3D11CreateDevice
-    D3D11CreateDeviceAndSwapChain
+EXPORTS
+    ; Core DirectX 11 device creation functions
+    D3D11CreateDevice            @1
+    D3D11CreateDeviceAndSwapChain @2
+
+    ; Additional DirectX 11 functions (if needed)
+    D3D11CreateBuffer            @3
+    D3D11CreateTexture2D         @4
+    D3D11CreateShaderResourceView @5
+    D3D11CreateRenderTargetView  @6
