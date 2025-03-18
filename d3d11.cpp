@@ -18,13 +18,11 @@ static PFN_D3D11ON12_CREATE_DEVICE GetPfnD3D11On12CreateDevice() {
     if (!d3d11module)
         return nullptr;
 
-    fptr = reinterpret_cast<PFN_D3D11ON12_CREATE_DEVICE>(
-        GetProcAddress(d3d11module, "D3D11On12CreateDevice"));
+    fptr = reinterpret_cast<PFN_D3D11ON12_CREATE_DEVICE>(GetProcAddress(d3d11module, "D3D11On12CreateDevice"));
     return fptr;
 }
 
 HRESULT CreateD3D12Device(IDXGIAdapter* pAdapter, ComPtr<ID3D12Device>& d3d12Device) {
-    // Use the latest feature level supported by the hardware
     constexpr D3D_FEATURE_LEVEL featureLevels[] = {
         D3D_FEATURE_LEVEL_12_1,
         D3D_FEATURE_LEVEL_12_0,
@@ -77,7 +75,6 @@ HRESULT __stdcall D3D11CreateDevice(
         return E_FAIL;
     }
 
-    // Use modern flags for better performance
     Flags |= D3D11_CREATE_DEVICE_BGRA_SUPPORT;
 
     hr = (*pfnD3D11on12CreateDevice)(d3d12Device.Get(), Flags, pFeatureLevels, FeatureLevels,
@@ -140,7 +137,6 @@ HRESULT __stdcall D3D11CreateDeviceAndSwapChain(
             return hr;
         }
 
-        // Use modern swap chain creation
         DXGI_SWAP_CHAIN_DESC1 desc = {};
         desc.Width = pSwapChainDesc->BufferDesc.Width;
         desc.Height = pSwapChainDesc->BufferDesc.Height;
@@ -150,15 +146,21 @@ HRESULT __stdcall D3D11CreateDeviceAndSwapChain(
         desc.BufferUsage = pSwapChainDesc->BufferUsage;
         desc.BufferCount = pSwapChainDesc->BufferCount;
         desc.Scaling = DXGI_SCALING_STRETCH;
-        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD; // Modern swap effect
+        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
         desc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
-        desc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING; // Enable tearing support
+        desc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
 
         ComPtr<IDXGISwapChain1> swapChain1;
         hr = dxgiFactory->CreateSwapChainForHwnd(
             d3d11Device.Get(), pSwapChainDesc->OutputWindow, &desc, nullptr, nullptr, &swapChain1);
         if (FAILED(hr)) {
             std::cerr << "Failed to create swap chain. HRESULT: " << hr << std::endl;
+            return hr;
+        }
+
+        hr = swapChain1.As(swapChain1.GetAddressOf());
+        if (FAILED(hr)) {
+            std::cerr << "Failed to query modern swap chain. HRESULT: " << hr << std::endl;
             return hr;
         }
 
