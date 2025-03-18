@@ -20,7 +20,8 @@ static PFN_D3D11ON12_CREATE_DEVICE getPfnD3D11On12CreateDevice() {
     }
 
     fptr = reinterpret_cast<PFN_D3D11ON12_CREATE_DEVICE>(
-        GetProcAddress(d3d11module, "D3D11On12CreateDevice"));
+        reinterpret_cast<void*>(GetProcAddress(d3d11module, "D3D11On12CreateDevice"))
+    );
 
     if (!fptr) {
         std::cerr << "Failed to get D3D11On12CreateDevice function pointer" << std::endl;
@@ -40,7 +41,11 @@ HRESULT __stdcall D3D11CreateDevice(
     UINT SDKVersion,
     ID3D11Device** ppDevice,
     D3D_FEATURE_LEVEL* pFeatureLevel,
-    ID3D11DeviceContext** ppImmediateContext) {
+    ID3D11DeviceContext** ppImmediateContext)
+{
+    (void)DriverType;  // Mark as unused
+    (void)Software;    // Mark as unused
+    (void)SDKVersion;  // Mark as unused
 
     if (!ppDevice || !ppImmediateContext) {
         return E_INVALIDARG;
@@ -125,12 +130,12 @@ HRESULT __stdcall D3D11CreateDeviceAndSwapChain(
     const D3D_FEATURE_LEVEL* pFeatureLevels,
     UINT FeatureLevels,
     UINT SDKVersion,
-    const DXGI_SWAP_CHAIN_DESC* pSwapChainDesc,
+    DXGI_SWAP_CHAIN_DESC* pSwapChainDesc,  // Removed const
     IDXGISwapChain** ppSwapChain,
     ID3D11Device** ppDevice,
     D3D_FEATURE_LEVEL* pFeatureLevel,
-    ID3D11DeviceContext** ppImmediateContext) {
-
+    ID3D11DeviceContext** ppImmediateContext)
+{
     if (ppSwapChain && !pSwapChainDesc) {
         return E_INVALIDARG;
     }
