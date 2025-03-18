@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - main  # Trigger on pull requests to the main branch
+  workflow_dispatch:  # Add manual trigger
 
 jobs:
   build:
